@@ -5,6 +5,7 @@ var supervisor = require('supervisor')
 var path = require('path')
 var os = require('os')
 var clc = require('cli-color')
+var portfinder = require('portfinder');
 
 program.version(require('../package.json').version)
   .option('-b, --browser', 'Open in the browser automatically.')
@@ -12,14 +13,12 @@ program.version(require('../package.json').version)
   .option('-d, --dir [dir]', 'The directory to serve up. Defaults to current dir.', process.cwd())
   .option('-w, --watch-dir [watch-dir]', 'The directory to watch. Defaults the serving directory.')
   .option('-e, --exts [extensions]', 'Extensions separated by commas or pipes. Defaults to html,js,css.', 'html|js|css')
-  .option('-p, --port [port]', 'The port to bind to. Can be set with PORT env variable as well. Defaults to 8080', '8080')
+  .option('-p, --port [port]', 'The port to bind to. Can be set with PORT env variable as well. Defaults to a free port >= 8080')
   .option('-s, --start-page [start-page]', 'Specify a start page. Defaults to index.html', 'index.html')
   .option('-f, --fallback [fallback]', 'Fallback to the start page when route is not found')
   .option('-v, --verbose [verbose]', 'Turning on logging on the server and client side. Defaults to false', false)
   .parse(process.argv)
 
-var runFile = path.join(os.tmpdir(), 'reload-' + Math.random().toString().slice(2))
-var serverFile = path.join(__dirname, '../lib/reload-server.js')
 
 if (program.exts.indexOf(',')) {
   program.exts = program.exts.replace(/,/g, '|') // replace comma for pipe, that's what supervisor likes
@@ -30,9 +29,34 @@ if (typeof program.watchDir === 'undefined') {
   program.watchDir = program.dir
 }
 
-var args = ['-e', program.exts, '-w', program.watchDir, '-q', '--', serverFile, program.port, program.dir, !!program.browser, program.hostname, runFile, program.startPage, program.fallback, program.verbose]
-supervisor.run(args)
+if (typeof program.port !== 'undefined') {
+  // Use port provided via --port
+  run(program);
+} else {
+  if(typeof process.env.PORT !== 'undefined') {
+    // Use port provided via PORT environment variable
+    program.port = process.env.PORT;
+    run(program)
+  } else {
+    // Try to find a free port >= 8080 and, if successful, use it
+    portfinder.getPort({ port: 8080 }, function (err, port) {
+      if (err) { throw err; } // TODO: what to do when there is no free port?
+      program.port = port;
+      run(program);
+    });
+  }
+}
 
-console.log('\nReload web server:')
-console.log('listening on port ' + clc.blue.bold(program.port))
-console.log('monitoring dir ' + clc.green.bold(program.dir))
+function run(program) {
+  var runFile = path.join(os.tmpdir(), 'reload-' + Math.random().toString().slice(2))
+  var serverFile = path.join(__dirname, '../lib/reload-server.js')
+  
+  var args = ['-e', program.exts, '-w', program.watchDir, '-q', '--', serverFile, program.port, program.dir, !!program.browser, program.hostname, runFile, 
+  program.startPage, program.fallback, program.verbose]
+
+  supervisor.run(args)
+
+  console.log('\nReload web server:')
+  console.log('listening on port ' + clc.blue.bold(program.port))
+  console.log('monitoring dir ' + clc.green.bold(program.dir))
+}
